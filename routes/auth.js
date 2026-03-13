@@ -1,9 +1,10 @@
 var express = require('express');
 var router = express.Router();
 let userController = require('../controllers/users')
-let { RegisterValidator, handleResultValidator } = require('../utils/validatorHandler')
+let { RegisterValidator, changePasswordValidator, handleResultValidator } = require('../utils/validatorHandler')
 let bcrypt = require('bcrypt')
 let jwt = require('jsonwebtoken')
+let fs = require('fs')
 let {checkLogin} = require('../utils/authHandler')
 /* GET home page. */
 router.post('/register', RegisterValidator, handleResultValidator, async function (req, res, next) {
@@ -30,10 +31,12 @@ router.post('/login', async function (req, res, next) {
         }
         if (bcrypt.compareSync(password, getUser.password)) {
             await userController.SuccessLogin(getUser);
+            const privateKey = fs.readFileSync('private.pem', 'utf8');
             let token = jwt.sign({
                 id: getUser._id
-            },"secret",{
-                expiresIn:'30d'
+            }, privateKey, {
+                algorithm: 'RS256',
+                expiresIn: '30d'
             })
             res.send(token)
         } else {
@@ -46,6 +49,27 @@ router.post('/login', async function (req, res, next) {
 router.get('/me',checkLogin,function(req,res,next){
     res.send(req.user)
 })
+router.put('/changepassword', checkLogin, changePasswordValidator, handleResultValidator, async function (req, res, next) {
+    try {
+        let user = req.user;
+        let { oldPassword, newPassword } = req.body;
+
+        // Check if old password is correct
+        if (!bcrypt.compareSync(oldPassword, user.password)) {
+            return res.status(400).send({ message: "Old password is incorrect" });
+        }
+
+        // Hash new password
+        let hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+        // Update user password
+        await user.updateOne({ password: hashedNewPassword });
+
+        res.send({ message: "Password changed successfully" });
+    } catch (error) {
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
 
 
 module.exports = router;
